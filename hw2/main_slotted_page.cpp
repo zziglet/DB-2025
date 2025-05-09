@@ -10,7 +10,9 @@ int main(){
 	uint64_t val = 100;
 	uint64_t cnt = 0;
 
-	for(i='a'; i<='j'; i++){
+	const char key_order[] = {'h', 'd', 'j', 'b', 'e', 'a', 'i', 'c', 'g', 'f'};
+	for (int k = 0; k < 10; k++) {
+		i = key_order[k];
 		for(int j=0; j<STRING_LEN-1; j++){
 			key[j] = i;
 		}
@@ -18,11 +20,13 @@ int main(){
 		cnt++;
 		val*=cnt;
 		p->insert(key, val);
+		p->print();
 	}
 
 	val = 100;
 	cnt = 0;
-	for(i='a'; i<='j'; i++){
+	for (int k = 0; k < 10; k++) {
+		i = key_order[k];
 		for(int j=0; j<STRING_LEN-1; j++){
 			key[j] = i;
 		}
