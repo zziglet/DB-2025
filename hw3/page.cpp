@@ -106,8 +106,6 @@ uint64_t page::find(char *key) {
 bool page::insert(char *key, uint64_t val) {
 	// Please implement this function in project 2.
 
-	std::cout << "[INSERT] key = " << key << ", val = " << val << std::endl;
-
 	// 1. record_size 계산 : record size(2byte = 16bit) + key 길이(null 포함)+ value(8byte = 64bit)
 	uint16_t key_len = strlen(key) + 1;
 	uint16_t record_size = sizeof(uint16_t) + key_len + sizeof(uint64_t);
@@ -153,37 +151,40 @@ page* page::split(char *key, uint64_t val, char** parent_key){
 	//1. 현재 페이지와 동일한 타입의 새 페이지 생성
 	page *new_page = new page(this->get_type()); 
 
-	uint16_t num_slots = hdr.get_num_data(); // 현재 페이지의 레코드 수
-	uint32_t mid_slots = (num_slots + 1) / 2; // 절반 기준 인덱스 계산
+	uint16_t num = hdr.get_num_data(); // 현재 페이지의 레코드 수
+	uint32_t mid = (num + 1) / 2; // 절반 기준 인덱스 계산
 	void* offset_arr = hdr.get_offset_array(); // offset array 포인터
 
 	// 2. internal node : 중앙값을 상위로 올리므로 해당 키는 복사하지 않는다
 	if(new_page->get_type() != LEAF){
-		
-		mid_slots--;
+		mid--;
 	}
 
 	// 3. mid 이후의 데이터를 새 페이지로 복사
-	for(int i = mid_slots; i < num_slots; ++i){
+	for(int i = mid; i < num; ++i){
 		uint16_t offset = *(uint16_t *)((uint64_t)offset_arr + i * 2);
 		void *record_ptr = (void *)((uint64_t)this + offset);
-      	new_page->insert((char *)(get_key(record_ptr)), get_val((void *)(get_key(record_ptr))));
+		char *k = (char *)(get_key(record_ptr));
+		uint64_t v = get_val((void *)(get_key(record_ptr)));
+    new_page->insert(k, v);
 	}
 
 	// 4. 상위 노드로 올릴 parent_key 설정 (새 페이지의 첫 번째 key 사용)
-	char *split_key = get_key((void *)((uint64_t)this + (uint64_t)(*(uint16_t *)((uint64_t)offset_arr + mid_slots * 2))));
-  	*parent_key = new char[STRING_LEN];
-	strcpy(*parent_key, split_key);
+	uint16_t split_off = *(uint16_t *)((uint64_t)offset_arr + mid * 2);
+	void *split_record = (void *)((uint64_t)this + split_off);
+	char *split_k = get_key(split_record);
+	*parent_key = new char[STRING_LEN];
+	strcpy(*parent_key, split_k);
 
-	hdr.set_num_data(num_slots + 1);
+	hdr.set_num_data(num + 1);
 	defrag();
 
 	// 5. 새로운 key를 적절한 페이지에 삽입
-    if (strcmp(key, get_key(*parent_key)) < 0) {
-        insert(key, val);
-    } else {
-        new_page->insert(key, val);
-    }
+  if (strcmp(key, get_key(*parent_key)) < 0) {
+    insert(key, val);
+  } else {
+    new_page->insert(key, val);
+  }
 
 	// 6. internal node : leftmost_ptr를 적절히 설정
 	if(this->get_type() != LEAF){

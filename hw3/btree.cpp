@@ -11,7 +11,7 @@ void btree::insert(char *key, uint64_t val){
 	page *current = root;
 	std::vector<std::pair<page *, int>> path;
 
-	// 1. 노드 탐색 (internal nodes may contain keys and values)
+	// 1. 노드 탐색
 	while (current->get_type() == INTERNAL)
 	{
     	path.push_back({current, 0});
@@ -26,9 +26,7 @@ void btree::insert(char *key, uint64_t val){
 	if (!inserted) {
 		page *target_leaf = current;
 		page *new_leaf = current->split(key, val, &parent_key);
-		std::cout << "[SPLIT RESULT] Original Page:" << std::endl;
 		target_leaf->print();
-		std::cout << "[SPLIT RESULT] New Page:" << std::endl;
 		new_leaf->print();
 		new_node = new_leaf;
 	}
@@ -60,6 +58,8 @@ void btree::insert(char *key, uint64_t val){
 uint64_t btree::lookup(char *key){
 	// Please implement this function in project 3.
 	page* current = root;
+
+	// 현재 root가 internal일 경우,
 	while (current->get_type() == INTERNAL) {
 	    uint64_t next = current->find(key);
 	    current = reinterpret_cast<page*>(next);
