@@ -150,59 +150,50 @@ bool page::insert(char *key, uint64_t val) {
 page* page::split(char *key, uint64_t val, char** parent_key){
 	// Please implement this function in project 3.
 
-	//split
-	//새로 삽입할 값이 중앙값보다 큰 지 작은 지.. mid 값 결정
-	//1. leaf node
-	//1-1. 원래 node -> 1 ~ n/2
-	//1-2. 새로운 node -> n/2+1 ~ 마지막
-	//1-3. 부모 노드에 새로운 node 삽입
-	//1-4. 만약 부모 노드가 꽉 찼다면 split
-	//2. non leaf node
-	//2-1. 원래 node -> 1 ~ n/2-1
-	//2-2. 새로운 node -> n/2+1 ~ 마지막
-	//2-2 부모 노드에 n/2번째 record 삽입
+	//1. 현재 페이지와 동일한 타입의 새 페이지 생성
+	page *new_page = new page(this->get_type()); 
 
-	page *new_page = new page(this->get_type()); //새로 만들어 줄 node(leaf -> leaf, internal -> internal)
+	uint16_t num_slots = hdr.get_num_data(); // 현재 페이지의 레코드 수
+	uint32_t mid_slots = (num_slots + 1) / 2; // 절반 기준 인덱스 계산
+	void* offset_arr = hdr.get_offset_array(); // offset array 포인터
 
-	uint16_t num_slots = hdr.get_num_data(); //현재 node의 slot 개수
-	uint32_t mid_slots = (num_slots + 1) / 2; //현재 node 중 중앙값
-	void* offset_arr = hdr.get_offset_array(); //현재 node offset arr
-	
-	//(leaf, non-leaf) type에 따라 mid 값 설정
+	// 2. internal node : 중앙값을 상위로 올리므로 해당 키는 복사하지 않는다
 	if(new_page->get_type() != LEAF){
+		
 		mid_slots--;
 	}
-	
-	//(leaf, non-leaf) mid 이후로 새로운 놈에 복사
+
+	// 3. mid 이후의 데이터를 새 페이지로 복사
 	for(int i = mid_slots; i < num_slots; ++i){
-		uint16_t offset = *(uint16_t *)((uint64_t)offset_arr+i*2);
-		void *record_ptr = (void *)((uint64_t)this + (uint64_t)offset);
+		uint16_t offset = *(uint16_t *)((uint64_t)offset_arr + i * 2);
+		void *record_ptr = (void *)((uint64_t)this + offset);
       	new_page->insert((char *)(get_key(record_ptr)), get_val((void *)(get_key(record_ptr))));
 	}
 
-	//(leaf, non-leaf) 새로운 node에 원래 record 삽입 및 현재 node의 값 지우기
-    char *split_key = get_key((void *)((uint64_t)this + (uint64_t)(*(uint16_t *)((uint64_t)offset_arr + mid_slots * 2))));
+	// 4. 상위 노드로 올릴 parent_key 설정 (새 페이지의 첫 번째 key 사용)
+	char *split_key = get_key((void *)((uint64_t)this + (uint64_t)(*(uint16_t *)((uint64_t)offset_arr + mid_slots * 2))));
   	*parent_key = new char[STRING_LEN];
 	strcpy(*parent_key, split_key);
-	
-	hdr.set_num_data(num_slots + 1); //defrag 위함
+
+	hdr.set_num_data(num_slots + 1);
 	defrag();
 
-	//(leaf, non-leaf) 넣고자 하는 값이 중앙값보다 크다면 새로운 node에 값을 넣어줘야 함
+	// 5. 새로운 key를 적절한 페이지에 삽입
     if (strcmp(key, get_key(*parent_key)) < 0) {
         insert(key, val);
     } else {
         new_page->insert(key, val);
     }
 
-	//(non-leaf) 부모 node에 새로운 노드 삽입
+	// 6. internal node : leftmost_ptr를 적절히 설정
 	if(this->get_type() != LEAF){
-		new_page->set_leftmost_ptr(get_leftmost_ptr()); //현재 page의 leftmost_ptr로 연결
-		set_leftmost_ptr((page *)get_val((void *)*parent_key)); //현재 page의 leftmost_ptr update
-	}	
+		new_page->set_leftmost_ptr(get_leftmost_ptr()); // 새 페이지는 기존의 leftmost 자식 포인터 유지
+		set_leftmost_ptr((page *)get_val((void *)*parent_key)); // 현재 페이지는 parent_key에 해당하는 자식으로 변경
+	}
 
 	return new_page;
 }
+
 
 bool page::is_full(uint64_t inserted_record_size) {
 	// Please implement this function in project 2.
