@@ -199,12 +199,13 @@ page *page::split(char *key, uint64_t val, char **parent_key)
 		new_page->insert(k, v);
 	}
 
-	// 4. 상위 노드로 올릴 parent_key 설정 (새 페이지의 첫 번째 key 사용)
-	uint16_t split_off = *(uint16_t *)((uint64_t)offset_arr + mid * 2);
-	void *split_record = (void *)((uint64_t)this + split_off);
-	char *split_k = get_key(split_record);
-	*parent_key = new char[strlen(split_k) + 1];
-	strcpy(*parent_key, split_k);
+	// 4. 상위 노드로 올릴 parent_key 설정 (new_page의 첫 번째 key 사용)
+	void *new_offset_arr = new_page->hdr.get_offset_array();
+	uint16_t new_off = *(uint16_t *)((uint64_t)new_offset_arr);
+	void *new_record = (void *)((uint64_t)new_page + new_off);
+	char *new_split_k = get_key(new_record);
+	*parent_key = new char[strlen(new_split_k) + 1];
+	strcpy(*parent_key, new_split_k);
 
 	// version을 안정적인 짝수 상태로 설정
 	uint64_t prev_version = read_version();
@@ -221,7 +222,7 @@ page *page::split(char *key, uint64_t val, char **parent_key)
 	// 5. 새로운 key를 적절한 페이지에 삽입
 	bool inserted = false;
 	// 수정된 비교 방식
-	char *cmp_key = get_key((void *)((uint64_t)this + *(uint16_t *)((uint64_t)hdr.get_offset_array() + mid * 2)));
+	char *cmp_key = get_key((void *)((uint64_t)this + *(uint16_t *)((uint64_t)offset_arr + mid * 2)));
 	if (strcmp(key, cmp_key) < 0)
 	{
 		inserted = insert(key, val);
@@ -242,8 +243,9 @@ page *page::split(char *key, uint64_t val, char **parent_key)
 	// 6. internal node : leftmost_ptr를 적절히 설정
 	if (this->get_type() != LEAF)
 	{
-		new_page->set_leftmost_ptr(get_leftmost_ptr());					// 새 페이지는 기존의 leftmost 자식 포인터 유지
-		set_leftmost_ptr((page *)get_val((void *)*parent_key)); // 현재 페이지는 parent_key에 해당하는 자식으로 변경
+		new_page->set_leftmost_ptr(get_leftmost_ptr());  // new_page inherits original leftmost child
+		// get_val returns the right pointer associated with parent_key
+		set_leftmost_ptr(reinterpret_cast<page *>(get_val((void *)*parent_key)));  // this now points to correct mid split
 	}
 
 	this->write_unlock();
@@ -272,7 +274,7 @@ void page::defrag()
 	uint64_t stored_val = 0;
 	void *data_region = nullptr;
 
-	for (int i = 0; i < num_data / 2; i++)
+	for (int i = 0; i < num_data; i++)
 	{
 		off = *(uint16_t *)((uint64_t)offset_array + i * 2);
 		data_region = (void *)((uint64_t)this + (uint64_t)off);

@@ -244,6 +244,7 @@ void btree::insert(char *key, uint64_t val) {
 				{
 					std::cerr << "[ERROR] Parent split failed, new_node is nullptr\n";
 					std::cout << "[UNLOCK] Releasing write lock on parent due to split failure\n";
+					delete new_node;  // 🔥 Prevent memory leak
 					parent->write_unlock();
 					restart = true;
 					break;
