@@ -108,9 +108,65 @@ bool page::insert(char *key, uint64_t val) {
 	return true;
 }
 
-page* page::split(char *key, uint64_t val, char** parent_key){
+page *page::split(char *key, uint64_t val, char **parent_key)
+{
 	// Please implement this function in project 3.
-	page *new_page;
+
+	// 1. 현재 페이지와 동일한 타입의 새 페이지 생성
+	page *new_page = new page(this->get_type());
+
+	uint16_t num = hdr.get_num_data();				 // 현재 페이지의 레코드 수
+	uint32_t mid = (num + 1) / 2;							 // 절반 기준 인덱스 계산
+	void *offset_arr = hdr.get_offset_array(); // offset array 포인터
+
+	// 2. internal node : 중앙값을 상위로 올리므로 해당 키는 복사하지 않는다
+	if (new_page->get_type() != LEAF) {
+		mid--;
+	}
+
+	// 3. mid 이후의 데이터를 새 페이지로 복사
+	for (int i = mid; i < num; ++i) {
+		uint16_t offset = *(uint16_t *)((uint64_t)offset_arr + i * 2);
+		void *record_ptr = (void *)((uint64_t)this + offset);
+		char *k = (char *)(get_key(record_ptr));
+		uint64_t v = get_val((void *)(get_key(record_ptr)));
+		new_page->insert(k, v);
+	}
+
+	// 4. 상위 노드로 올릴 parent_key 설정 (새 페이지의 첫 번째 key 사용)
+	uint16_t split_off = *(uint16_t *)((uint64_t)offset_arr + mid * 2);
+	void *split_record = (void *)((uint64_t)this + split_off);
+	char *split_k = get_key(split_record);
+	*parent_key = new char[strlen(split_k) + 1];
+	strcpy(*parent_key, split_k);
+
+	// version을 안정적인 짝수 상태로 설정
+	uint64_t prev_version = read_version();
+	// defrag 수행 (version 초기화됨)
+	defrag();
+	// write 잠금이 끝난 상태로 복원하려면 짝수 version 필요
+	if (prev_version % 2 == 1)
+		prev_version++; // 홀수였다면 다음 짝수로
+	__atomic_store_n(&version, prev_version, __ATOMIC_RELEASE);
+
+	// 5. 새로운 key를 적절한 페이지에 삽입
+	bool inserted = false;
+	if (strcmp(key, get_key(*parent_key)) < 0) {
+		inserted = insert(key, val);
+	} else {
+		inserted = new_page->insert(key, val);
+	}
+	if (!inserted) {
+		delete new_page;
+		return nullptr;
+	}
+
+	// 6. internal node : leftmost_ptr를 적절히 설정
+	if (this->get_type() != LEAF) {
+		new_page->set_leftmost_ptr(get_leftmost_ptr());					// 새 페이지는 기존의 leftmost 자식 포인터 유지
+		set_leftmost_ptr((page *)get_val((void *)*parent_key)); // 현재 페이지는 parent_key에 해당하는 자식으로 변경
+	}
+
 	return new_page;
 }
 
