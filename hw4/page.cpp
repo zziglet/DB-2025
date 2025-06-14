@@ -235,7 +235,6 @@ page *page::split(char *key, uint64_t val, char **parent_key)
 	// 만약 삽입이 실패했다면, 새 페이지를 삭제하고 nullptr 반환
 	if (!inserted)
 	{
-		std::cerr << "[SPLIT] Failed to insert key " << key << " after split\n";
 		delete new_page;
 		return nullptr;
 	}
