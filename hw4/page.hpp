@@ -35,4 +35,6 @@ public:
 	bool try_write_lock();
 	bool read_unlock(uint64_t old_version);
 	void write_unlock();
+
+	uint64_t find_child(char *key);
 };

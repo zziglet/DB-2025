@@ -289,3 +289,33 @@ void page::write_unlock()
 	// 쓰기 작업이 끝났으므로 version을 홀수로 변경
 	__atomic_fetch_add(&version, 1, __ATOMIC_ACQ_REL);
 }
+
+// 추가: split 후 자식 페이지를 찾는 함수
+uint64_t page::find_child(char* key) {
+    void* offset_array = hdr.get_offset_array();
+    int num_data = hdr.get_num_data();
+
+    for (int i = 0; i < num_data; i++) {
+        uint16_t off = *(uint16_t*)((uint64_t)offset_array + i * 2);
+        void* record_ptr = (void*)((uint64_t)this + off);
+        char* stored_key = get_key(record_ptr);
+
+        if (strcmp(key, stored_key) < 0) {
+            if (i == 0) {
+                return reinterpret_cast<uint64_t>(get_leftmost_ptr());
+            } else {
+                uint16_t prev_off = *(uint16_t*)((uint64_t)offset_array + (i - 1) * 2);
+                void* prev_record_ptr = (void*)((uint64_t)this + prev_off);
+                char* prev_key = get_key(prev_record_ptr);
+                uint64_t child_ptr = get_val(prev_key);
+                return child_ptr;
+            }
+        }
+    }
+
+    uint16_t last_off = *(uint16_t*)((uint64_t)offset_array + (num_data - 1) * 2);
+    void* last_record_ptr = (void*)((uint64_t)this + last_off);
+    char* last_key = get_key(last_record_ptr);
+    uint64_t child_ptr = get_val(last_key);
+    return child_ptr;
+}
