@@ -1,6 +1,7 @@
 #include "page.hpp"
-#include <iostream> 
-#include <cstring> 
+#include <iostream>
+#include <cstring>
+#include <atomic>
 
 void put2byte(void *dest, uint16_t data){
 	*(uint16_t*)dest = data;
@@ -12,9 +13,10 @@ uint16_t get2byte(void *dest){
 
 page::page(uint16_t type){
 	hdr.set_num_data(0);
-	hdr.set_data_region_off(PAGE_SIZE-1-sizeof(page*));
-	hdr.set_offset_array((void*)((uint64_t)this+sizeof(slot_header)));
+	hdr.set_data_region_off(PAGE_SIZE - 1 - sizeof(page *));
+	hdr.set_offset_array((void *)((uint64_t)this + sizeof(slot_header)));
 	hdr.set_page_type(type);
+	version = 0; // Initialize version to even number (unlocked)
 }
 
 uint16_t page::get_type(){
@@ -41,25 +43,25 @@ void page::set_leftmost_ptr(page *p){
 }
 
 page *page::get_leftmost_ptr(){
-	return leftmost_ptr;	
+	return leftmost_ptr;
 }
 
 uint64_t page::find(char *key) {
 	// Please implement this function in project 2.
-	
+
 	// offset arr의 시작 지점부터 체크
 	void *offset_array = hdr.get_offset_array();
 	int num_data = hdr.get_num_data();
 
 	for (int i = 0; i < num_data; i++) {
-			uint16_t off = *(uint16_t *)((uint64_t)offset_array + i * 2);
-			void *record_ptr = (void *)((uint64_t)this + off);
-			char *stored_key = get_key(record_ptr);
-			
+		uint16_t off = *(uint16_t *)((uint64_t)offset_array + i * 2);
+		void *record_ptr = (void *)((uint64_t)this + off);
+		char *stored_key = get_key(record_ptr);
+
 			//인자로 받은 key와 일치하는 것이 있는지 체크
 			if (strcmp(stored_key, key) == 0) {
-					return get_val(stored_key);
-			}
+			return get_val(stored_key);
+		}
 	}
 	return 0;
 }
@@ -76,7 +78,7 @@ bool page::insert(char *key, uint64_t val) {
 
 	// 3. insert offset 계산 후 pointer 설정
 	uint16_t insert_off = hdr.get_data_region_off() - record_size + 1;
-	void *record_ptr = (void *)((uint64_t)this + insert_off); 
+	void *record_ptr = (void *)((uint64_t)this + insert_off);
 
 	// 4. 레코드 크기 저장, key/value 저장
 	put2byte(record_ptr, record_size);
@@ -88,8 +90,8 @@ bool page::insert(char *key, uint64_t val) {
 	int num_data = hdr.get_num_data();
 	int insert_idx = 0;
 	for (; insert_idx < num_data; insert_idx++) {
-			uint16_t off = *(uint16_t *)((uint64_t)offset_array + insert_idx * 2);
-			void *r = (void *)((uint64_t)this + off);
+		uint16_t off = *(uint16_t *)((uint64_t)offset_array + insert_idx * 2);
+		void *r = (void *)((uint64_t)this + off);
 			if (strcmp(key, get_key(r)) < 0) break;
 	}
 
@@ -140,7 +142,7 @@ void page::defrag(){
 		stored_key = get_key(data_region);
 		stored_val= get_val((void *)stored_key);
 		new_page->insert((char*)stored_key,stored_val);
-	}	
+	}
 	new_page->set_leftmost_ptr(get_leftmost_ptr());
 
 	memcpy(this, new_page, sizeof(page));
@@ -177,4 +179,57 @@ void page::print(){
 		printf("| data_sz:%u | key: %s | val :%lu | key_len:%lu\n",record_size,(char*)stored_key, stored_val,strlen((char*)stored_key));
 
 	}
+}
+
+// Version-based Locking Implementation
+uint64_t page::read_version()
+{
+	// 현재 version을 읽어 반환
+	return __atomic_load_n(&version, __ATOMIC_ACQUIRE);
+}
+
+bool page::validate_read(uint64_t old_version)
+{
+	// 현재 version을 읽어 old_version과 비교
+	uint64_t current_version = __atomic_load_n(&version, __ATOMIC_ACQUIRE);
+	return current_version == old_version;
+}
+
+bool page::try_read_lock(uint64_t version)
+{
+	// 파라미터로 받은 version이 현재 접근 가능한지 확인
+	// 사용 가능이란 뜻 = 짝수
+	return (version % 2 == 0);
+}
+
+bool page::try_write_lock()
+{
+	// 페이지가 사용 가능한 상태인지 확인
+	uint64_t expected = __atomic_load_n(&version, __ATOMIC_ACQUIRE);
+
+	// 짝수면 사용 가능
+	while (expected % 2 == 0)
+	{
+		uint64_t desired = expected + 1; // 홀수로 변경
+		if (__atomic_compare_exchange_n(&version, &expected, desired,
+																		false, __ATOMIC_ACQ_REL, __ATOMIC_ACQUIRE)) {
+			return true; // lock 얻기 성공
+		}
+		// lock 얻기 실패, expected는 현재 version으로 업데이트됨
+	}
+	// 현재 version이 홀수면 사용 불가능
+	// 즉, 다른 쓰레드가 쓰기 작업을 하고 있는 중
+	return false;
+}
+
+bool page::read_unlock(uint64_t old_version)
+{
+	// validate_read를 통해 버전이 바뀌었는지 화깅ㄴ
+	return validate_read(old_version);
+}
+
+void page::write_unlock()
+{
+	// 쓰기 작업이 끝났으므로 version을 홀수로 변경
+	__atomic_fetch_add(&version, 1, __ATOMIC_ACQ_REL);
 }

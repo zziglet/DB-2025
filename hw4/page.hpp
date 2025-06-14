@@ -9,6 +9,9 @@ private:
 	char data[PAGE_SIZE - sizeof(slot_header) - sizeof(page *)];
 	page *leftmost_ptr;
 
+	// 추가
+	uint64_t version;
+
 public:
 	page(uint16_t);
 
@@ -24,4 +27,12 @@ public:
 	void set_leftmost_ptr(page *);
 	page *get_leftmost_ptr();
 	void defrag();
+
+	// 추가
+	uint64_t read_version();
+	bool validate_read(uint64_t old_version);
+	bool try_read_lock(uint64_t version);
+	bool try_write_lock();
+	bool read_unlock(uint64_t old_version);
+	void write_unlock();
 };
