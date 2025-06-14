@@ -88,7 +88,7 @@ void btree::insert(char *key, uint64_t val) {
 			std::cout << "[INSERT] Added to path, depth: " << path.size() << std::endl;
 
 			// 다음 page 찾기
-			uint64_t next = current->find(key);
+			uint64_t next = current->find_child(key);
 
 			if (next == 0) {
 			    std::cerr << "[ERROR] Invalid child pointer (0) returned by find(). Restarting.\n";
@@ -134,7 +134,13 @@ void btree::insert(char *key, uint64_t val) {
 		{
 			std::cout << "[INSERT] Failed to acquire write lock on leaf, retry: " << retry << std::endl;
 			path.release_all_read_locks();
-			return; // 혹은 break;
+			std::this_thread::sleep_for(std::chrono::microseconds(100));
+			retry++;
+			if (retry >= 10) {
+				std::cout << "[INSERT] Giving up after retries, releasing locks\n";
+				path.release_all_read_locks();
+				return;
+			}
 		}
 
 		std::cout << "[INSERT] Acquired write lock on leaf" << std::endl;
@@ -153,6 +159,7 @@ void btree::insert(char *key, uint64_t val) {
 			// Null check after split
 			if (!new_leaf) {
 			    std::cerr << "[ERROR] Split failed: new_leaf is nullptr\n";
+			    std::cout << "[UNLOCK] Releasing write lock on leaf due to split failure\n";
 			    current->write_unlock();
 			    path.release_all_read_locks();
 			    restart = true;
@@ -169,6 +176,7 @@ void btree::insert(char *key, uint64_t val) {
 		}
 
 		// insert 성공 -> write_unlock
+		std::cout << "[UNLOCK] Releasing write lock on leaf\n";
 		current->write_unlock();
 		std::cout << "[INSERT] Released write lock on leaf" << std::endl;
 
@@ -212,6 +220,7 @@ void btree::insert(char *key, uint64_t val) {
 			if (!parent->validate_read(parent_version)) {
 				// 수정된 경우, write_unlock 후 restart
 				std::cout << "[INSERT] Parent modified, restarting" << std::endl;
+				std::cout << "[UNLOCK] Releasing write lock on parent due to validation failure\n";
 				parent->write_unlock();
 				path.release_all_read_locks();
 				restart = true;
@@ -221,6 +230,7 @@ void btree::insert(char *key, uint64_t val) {
 			// 부모 노드에 새 노드 삽입 시도
 			if (!new_node) {
 			    std::cerr << "[ERROR] Cannot insert nullptr new_node into parent\n";
+			    std::cout << "[UNLOCK] Releasing write lock on parent due to nullptr new_node\n";
 			    parent->write_unlock();
 			    restart = true;
 			    break;
@@ -228,7 +238,16 @@ void btree::insert(char *key, uint64_t val) {
 			if (!parent->insert(parent_key, reinterpret_cast<uint64_t>(new_node))) {
 				// Parent needs to split
 				std::cout << "[INSERT] Parent also needs split" << std::endl;
+				parent->print();
 				page *next_new = parent->split(parent_key, reinterpret_cast<uint64_t>(new_node), &parent_key);
+				if (!next_new)
+				{
+					std::cerr << "[ERROR] Parent split failed, new_node is nullptr\n";
+					std::cout << "[UNLOCK] Releasing write lock on parent due to split failure\n";
+					parent->write_unlock();
+					restart = true;
+					break;
+				}
 				new_node = next_new;
 			} else {
 				std::cout << "[INSERT] Successfully inserted into parent" << std::endl;
@@ -236,6 +255,7 @@ void btree::insert(char *key, uint64_t val) {
 			}
 
 			// 부모 노드 write_unlock
+			std::cout << "[UNLOCK] Releasing write lock on parent\n";
 			parent->write_unlock();
 		}
 
@@ -286,10 +306,8 @@ uint64_t btree::lookup(char *key)
 				break;
 			}
 
-			// 다음 page 찾기
-			uint64_t next = current->find(key);
+			uint64_t next = current->find_child(key);
 
-			// page 변경 여부 체크
 			if (!current->validate_read(version)) {
 				std::cout << "[LOOKUP] Page changed during traversal, restarting" << std::endl;
 				current->read_unlock(version);
@@ -298,6 +316,12 @@ uint64_t btree::lookup(char *key)
 			}
 
 			current->read_unlock(version);
+
+			if (next == 0) {
+				std::cerr << "[LOOKUP] Invalid child pointer (0) in lookup. Restarting." << std::endl;
+				restart = true;
+				break;
+			}
 
 			current = reinterpret_cast<page*>(next);
 		}
@@ -310,6 +334,7 @@ uint64_t btree::lookup(char *key)
 		// leaf page 도달, read_version 읽기
 		std::cout << "[LOOKUP] Reached leaf node" << std::endl;
 		uint64_t leaf_version = current->read_version();
+		std::cout << "[LOOKUP] Attempting read lock on leaf at " << leaf_version << std::endl;
 		int retry = 0;
 		while (!current->try_read_lock(leaf_version)) {
 			leaf_version = current->read_version(); // re-read version
