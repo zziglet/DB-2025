@@ -2,8 +2,6 @@
 #include <iostream>
 #include <cstring>
 
-#define STRING_LEN 20
-
 void put2byte(void *dest, uint16_t data)
 {
 	*(uint16_t *)dest = data;
@@ -199,7 +197,7 @@ page *page::split(char *key, uint64_t val, char **parent_key)
 	uint16_t split_off = *(uint16_t *)((uint64_t)offset_arr + mid * 2);
 	void *split_record = (void *)((uint64_t)this + split_off);
 	char *split_k = get_key(split_record);
-	*parent_key = new char[STRING_LEN];
+	*parent_key = new char[20];
 	strcpy(*parent_key, split_k);
 
 	hdr.set_num_data(num + 1);
